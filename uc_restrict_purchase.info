@@ -1,0 +1,9 @@
+name = Restrict Purchase
+description = Limits who can buy each product, by role. Users without one of the product's roles see a message instead of the Add to cart button, and optionally instead of the price.
+dependencies[] = uc_product
+dependencies[] = uc_cart
+package = Ubercart - extra
+backdrop = 1.x
+type = module
+
+configure = admin/store/settings/products

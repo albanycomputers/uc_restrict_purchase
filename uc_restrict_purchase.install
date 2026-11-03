@@ -1,0 +1,30 @@
+<?php
+/**
+ * @file
+ * Install, update and uninstall functions for Restrict Purchase.
+ */
+
+/**
+ * Implements hook_schema().
+ */
+function uc_restrict_purchase_schema() {
+  $schema['uc_restrict_purchase'] = array(
+    'description' => 'The roles allowed to buy each restricted product. Products with no row can be bought by anyone.',
+    'fields' => array(
+      'nid' => array(
+        'description' => 'The product node ID.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'roles' => array(
+        'description' => 'Comma-separated role machine names allowed to buy the product.',
+        'type' => 'text',
+        'not null' => TRUE,
+      ),
+    ),
+    'primary key' => array('nid'),
+  );
+  return $schema;
+}

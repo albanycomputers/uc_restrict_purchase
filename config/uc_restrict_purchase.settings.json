@@ -1,0 +1,11 @@
+{
+    "_config_name": "uc_restrict_purchase.settings",
+    "default_roles": [],
+    "display": "message",
+    "message": "",
+    "button_label": "Log in to purchase",
+    "button_url": "user/login",
+    "button_anonymous_only": true,
+    "message_field": "add_to_cart",
+    "hide_price": true
+}

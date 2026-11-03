@@ -1,0 +1,368 @@
+<?php
+/**
+ * @file
+ * Limits who can buy each Ubercart product, by role.
+ *
+ * Based on the Drupal 7 module Ubercart Price Visibility (uc_price_visibility).
+ */
+
+/**
+ * Implements hook_config_info().
+ */
+function uc_restrict_purchase_config_info() {
+  $prefixes['uc_restrict_purchase.settings'] = array(
+    'label' => t('Restrict Purchase settings'),
+    'group' => t('Configuration'),
+  );
+  return $prefixes;
+}
+
+/**
+ * Implements hook_form_FORM_ID_alter() for uc_product_settings_form().
+ *
+ * Adds the site-wide settings as a tab on the product settings page.
+ */
+function uc_restrict_purchase_form_uc_product_settings_form_alter(&$form, &$form_state) {
+  $config = config('uc_restrict_purchase.settings');
+
+  $form['uc_restrict_purchase'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('Restrict purchase'),
+    '#group' => 'product-settings',
+  );
+  $form['uc_restrict_purchase']['uc_restrict_purchase_default_roles'] = array(
+    '#type' => 'checkboxes',
+    '#title' => t('Roles ticked by default on new products'),
+    '#options' => array_map('check_plain', user_roles()),
+    '#default_value' => $config->get('default_roles'),
+    '#description' => t('Only pre-fills the form for new products. A product with no roles ticked can be bought by anyone.'),
+  );
+  $form['uc_restrict_purchase']['uc_restrict_purchase_hide_price'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Also hide the price from users who cannot buy the product'),
+    '#default_value' => $config->get('hide_price'),
+    '#description' => t('Hides the display, sell and list prices on the product page. Prices in Views are not affected.'),
+  );
+  $form['uc_restrict_purchase']['uc_restrict_purchase_display'] = array(
+    '#type' => 'radios',
+    '#title' => t('Users who cannot buy the product see'),
+    '#options' => array(
+      'message' => t('A message'),
+      'button' => t('A button, with the message as help text below it'),
+    ),
+    '#default_value' => $config->get('display'),
+  );
+  $form['uc_restrict_purchase']['uc_restrict_purchase_message'] = array(
+    '#type' => 'textarea',
+    '#title' => t('Message'),
+    '#default_value' => $config->get('message'),
+    '#rows' => 2,
+    '#description' => t('For example: "Only full members can purchase these items." HTML is allowed. Leave empty for none.'),
+  );
+  $button_states = array(
+    'visible' => array(':input[name="uc_restrict_purchase_display"]' => array('value' => 'button')),
+  );
+  $form['uc_restrict_purchase']['uc_restrict_purchase_button_label'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Button label'),
+    '#default_value' => $config->get('button_label'),
+    '#states' => $button_states,
+  );
+  $form['uc_restrict_purchase']['uc_restrict_purchase_button_url'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Button link'),
+    '#default_value' => $config->get('button_url'),
+    '#description' => t('A path on this site, such as %login or %join, or a full URL. Paths on this site return the user to the product afterwards.', array('%login' => 'user/login', '%join' => 'membership-application')),
+    '#states' => $button_states,
+  );
+  $form['uc_restrict_purchase']['uc_restrict_purchase_button_anonymous_only'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Show the button to anonymous users only'),
+    '#default_value' => $config->get('button_anonymous_only'),
+    '#description' => t('Logged-in users without a permitted role then see the message only. Untick if the button leads somewhere useful to them too, such as a join page.'),
+    '#states' => $button_states,
+  );
+  $form['uc_restrict_purchase']['uc_restrict_purchase_message_field'] = array(
+    '#type' => 'select',
+    '#title' => t('On the product page, show the message or button in place of'),
+    '#options' => array(
+      'add_to_cart' => t('Add to cart button'),
+      'sell_price' => t('Sell price'),
+      'display_price' => t('Display price'),
+    ),
+    '#default_value' => $config->get('message_field'),
+    '#description' => t('Elsewhere (catalog, Views) the message replaces the Add to cart button.'),
+  );
+
+  $form['#validate'][] = 'uc_restrict_purchase_product_settings_validate';
+  $form['#submit'][] = 'uc_restrict_purchase_product_settings_submit';
+}
+
+/**
+ * Form validation handler: the button needs a label and a safe link.
+ */
+function uc_restrict_purchase_product_settings_validate($form, &$form_state) {
+  $values = $form_state['values'];
+  if ($values['uc_restrict_purchase_display'] != 'button') {
+    return;
+  }
+  if (trim($values['uc_restrict_purchase_button_label']) === '') {
+    form_set_error('uc_restrict_purchase_button_label', t('Enter a button label.'));
+  }
+  $url = trim($values['uc_restrict_purchase_button_url']);
+  if ($url === '') {
+    form_set_error('uc_restrict_purchase_button_url', t('Enter a button link.'));
+  }
+  elseif (url_is_external($url) && !preg_match('@^https?://@i', $url)) {
+    form_set_error('uc_restrict_purchase_button_url', t('A full URL must start with http:// or https://.'));
+  }
+}
+
+/**
+ * Form submission handler: saves the Restrict purchase settings.
+ *
+ * The product settings form uses its own submit handler rather than
+ * system_settings_form_submit(), so each module saves its own config.
+ */
+function uc_restrict_purchase_product_settings_submit($form, &$form_state) {
+  $values = $form_state['values'];
+  config('uc_restrict_purchase.settings')
+    ->set('default_roles', array_values(array_filter($values['uc_restrict_purchase_default_roles'])))
+    ->set('hide_price', (bool) $values['uc_restrict_purchase_hide_price'])
+    ->set('display', $values['uc_restrict_purchase_display'])
+    ->set('message', $values['uc_restrict_purchase_message'])
+    ->set('button_label', trim($values['uc_restrict_purchase_button_label']))
+    ->set('button_url', trim($values['uc_restrict_purchase_button_url']))
+    ->set('button_anonymous_only', (bool) $values['uc_restrict_purchase_button_anonymous_only'])
+    ->set('message_field', $values['uc_restrict_purchase_message_field'])
+    ->save();
+}
+
+/**
+ * Implements hook_form_alter().
+ *
+ * On product edit forms, adds the role checkboxes. On add to cart and buy it
+ * now forms (one form ID per product), replaces the button with the message
+ * for users who may not buy the product, so catalog and Views buttons are
+ * covered as well as the product page.
+ */
+function uc_restrict_purchase_form_alter(&$form, &$form_state, $form_id) {
+  if (uc_product_is_product_form($form, $form_state)) {
+    $node = $form['#node'];
+    $default = isset($node->nid) && isset($node->uc_restrict_purchase)
+      ? $node->uc_restrict_purchase
+      : config_get('uc_restrict_purchase.settings', 'default_roles');
+    $form['base']['uc_restrict_purchase_roles'] = array(
+      '#type' => 'checkboxes',
+      '#title' => t('Only these roles can buy this product'),
+      '#options' => array_map('check_plain', user_roles()),
+      '#default_value' => $default,
+      '#description' => t('Leave all unticked to let anyone buy it. Users with any ticked role can buy it.'),
+    );
+    return;
+  }
+
+  if (strpos($form_id, 'uc_product_add_to_cart_form_') !== 0 && strpos($form_id, 'uc_catalog_buy_it_now_form_') !== 0) {
+    return;
+  }
+  $nid = isset($form['nid']['#value']) ? $form['nid']['#value'] : NULL;
+  if (!$nid || !($node = node_load($nid)) || uc_restrict_purchase_allowed($node)) {
+    return;
+  }
+
+  // Hide everything the user could act on (quantity, attributes, button) but
+  // keep the hidden and internal elements, so the form still renders cleanly.
+  foreach (element_children($form) as $key) {
+    $type = isset($form[$key]['#type']) ? $form[$key]['#type'] : '';
+    if (!in_array($type, array('value', 'hidden', 'token'))) {
+      $form[$key]['#access'] = FALSE;
+    }
+  }
+  if ($notice = uc_restrict_purchase_notice()) {
+    $form['uc_restrict_purchase_notice'] = $notice;
+  }
+}
+
+/**
+ * Implements hook_node_load().
+ */
+function uc_restrict_purchase_node_load($nodes, $types) {
+  $nids = array();
+  foreach ($nodes as $node) {
+    if (uc_product_is_product($node->type)) {
+      $nids[] = $node->nid;
+      $node->uc_restrict_purchase = array();
+    }
+  }
+  if (!$nids) {
+    return;
+  }
+  $result = db_query('SELECT nid, roles FROM {uc_restrict_purchase} WHERE nid IN (:nids)', array(':nids' => $nids));
+  foreach ($result as $row) {
+    $roles = array_filter(explode(',', $row->roles));
+    $nodes[$row->nid]->uc_restrict_purchase = array_combine($roles, $roles);
+  }
+}
+
+/**
+ * Implements hook_node_insert().
+ */
+function uc_restrict_purchase_node_insert(Node $node) {
+  uc_restrict_purchase_node_update($node);
+}
+
+/**
+ * Implements hook_node_update().
+ *
+ * Saves the roles only when the product form supplied them, so a product
+ * saved by code (imports, bulk updates) keeps its restriction.
+ */
+function uc_restrict_purchase_node_update(Node $node) {
+  if (!uc_product_is_product($node->type) || !isset($node->uc_restrict_purchase_roles)) {
+    return;
+  }
+  $roles = array_values(array_filter((array) $node->uc_restrict_purchase_roles));
+  if ($roles) {
+    db_merge('uc_restrict_purchase')
+      ->key(array('nid' => $node->nid))
+      ->fields(array('roles' => implode(',', $roles)))
+      ->execute();
+  }
+  else {
+    db_delete('uc_restrict_purchase')
+      ->condition('nid', $node->nid)
+      ->execute();
+  }
+}
+
+/**
+ * Implements hook_node_delete().
+ */
+function uc_restrict_purchase_node_delete(Node $node) {
+  db_delete('uc_restrict_purchase')
+    ->condition('nid', $node->nid)
+    ->execute();
+}
+
+/**
+ * Implements hook_node_view().
+ *
+ * Replaces the Add to cart button (and the prices, if set) on the product
+ * page with the message for users who may not buy the product.
+ */
+function uc_restrict_purchase_node_view(Node $node, $view_mode, $langcode) {
+  if (!uc_product_is_product($node->type) || uc_restrict_purchase_allowed($node)) {
+    return;
+  }
+  $config = config('uc_restrict_purchase.settings');
+
+  $hide = array('add_to_cart');
+  if ($config->get('hide_price')) {
+    $hide = array_merge($hide, array('display_price', 'sell_price', 'list_price'));
+  }
+  foreach ($hide as $key) {
+    if (isset($node->content[$key])) {
+      $node->content[$key]['#access'] = FALSE;
+    }
+  }
+
+  if ($notice = uc_restrict_purchase_notice()) {
+    $field = $config->get('message_field');
+    $notice['#weight'] = isset($node->content[$field]['#weight']) ? $node->content[$field]['#weight'] : 10;
+    $node->content['uc_restrict_purchase_notice'] = $notice;
+  }
+}
+
+/**
+ * Implements hook_uc_add_to_cart().
+ *
+ * Refuses the add itself, which also covers cart links (cart/add/...) and
+ * forms submitted without the button.
+ */
+function uc_restrict_purchase_uc_add_to_cart($nid, $qty, $data) {
+  $node = node_load($nid);
+  if (!$node || uc_restrict_purchase_allowed($node)) {
+    return array();
+  }
+  $message = uc_restrict_purchase_message();
+  return array(array(
+    'success' => FALSE,
+    'message' => $message !== '' ? $message : t('Sorry, you cannot buy %title.', array('%title' => $node->title)),
+  ));
+}
+
+/**
+ * Determines whether an account may buy a product.
+ *
+ * @param Node $node
+ *   A loaded product node.
+ * @param object|null $account
+ *   The account to check. Defaults to the current user.
+ *
+ * @return bool
+ *   TRUE if the product has no role restriction or the account has one of
+ *   its roles.
+ */
+function uc_restrict_purchase_allowed(Node $node, $account = NULL) {
+  if (empty($node->uc_restrict_purchase)) {
+    return TRUE;
+  }
+  if (!$account) {
+    global $user;
+    $account = $user;
+  }
+  return (bool) array_intersect($node->uc_restrict_purchase, $account->roles);
+}
+
+/**
+ * Builds what users who cannot buy a product see in place of the button.
+ *
+ * @return array
+ *   A render array: the button (when configured and shown to this user)
+ *   followed by the message, or an empty array if there is nothing to show.
+ */
+function uc_restrict_purchase_notice() {
+  global $user;
+  $config = config('uc_restrict_purchase.settings');
+  $notice = array(
+    '#type' => 'container',
+    '#attributes' => array('class' => array('uc-restrict-purchase')),
+  );
+
+  $label = trim((string) $config->get('button_label'));
+  $url = trim((string) $config->get('button_url'));
+  $show_button = $config->get('display') == 'button' && $label !== '' && $url !== ''
+    && (!$user->uid || !$config->get('button_anonymous_only'));
+  if ($show_button) {
+    $options = array('attributes' => array('class' => array('button', 'uc-restrict-purchase-button')));
+    // Bring the user back to the product after logging in or joining.
+    if (!url_is_external($url)) {
+      $options['query'] = backdrop_get_destination();
+    }
+    $notice['button'] = array(
+      '#markup' => l($label, $url, $options),
+    );
+  }
+
+  $message = uc_restrict_purchase_message();
+  if ($message !== '') {
+    $notice['message'] = array(
+      '#markup' => $message,
+      '#prefix' => '<div class="uc-restrict-purchase-message description">',
+      '#suffix' => '</div>',
+    );
+  }
+
+  return isset($notice['button']) || isset($notice['message']) ? $notice : array();
+}
+
+/**
+ * Returns the configured message, filtered for output.
+ *
+ * @return string
+ *   The message as safe HTML, or an empty string if none is set.
+ */
+function uc_restrict_purchase_message() {
+  $message = trim((string) config_get('uc_restrict_purchase.settings', 'message'));
+  return $message === '' ? '' : filter_xss_admin($message);
+}
